@@ -113,6 +113,14 @@ using GFLAGS_NAMESPACE::SetVersionString;
 #define IF_ROCKSDB_LITE(Then, Else) Else
 #endif
 
+// cpuset global variables & gflags
+DEFINE_int32(flush_cpuset, 0, "Cpu mask for flush jobs");
+DEFINE_int32(compaction_cpuset, 0, "Cpu mask for compaction jobs");
+DEFINE_int32(io_cpuset, 0, "Cpu mask for io jobs");
+uint32_t flush_cpu_affinity_;
+uint32_t compaction_cpu_affinity_;
+uint32_t io_cpu_affinity_;
+
 DEFINE_string(
     benchmarks,
     "fillseq,"
@@ -3855,10 +3863,29 @@ class Benchmark {
     SetPerfLevel(static_cast<PerfLevel> (shared->perf_level));
     perf_context.EnablePerLevelPerfContext();
     thread->stats.Start(thread->tid);
+
+    // Dedicates 0 core for the iothread
+    cpu_set_t cpuset, cpuset_prev;
+    if(io_cpu_affinity_) {
+      CPU_ZERO(&cpuset);
+      CPU_ZERO(&cpuset_prev);
+      sched_getaffinity(0, sizeof(cpuset_prev), &cpuset_prev);
+      for(int i=0;i<8;++i)
+        if(io_cpu_affinity_ & (1<<i)) CPU_SET(i, &cpuset);
+      sched_setaffinity(0, sizeof(cpuset), &cpuset);
+      // printf("#### thread-tid %d %d###\n", gettid(), io_cpu_affinity_);
+      // printf("\033[0;31m%d\033[0m\n", );
+    }
+
     (arg->bm->*(arg->method))(thread);
     if (FLAGS_perf_level > ROCKSDB_NAMESPACE::PerfLevel::kDisable) {
       thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
                                get_perf_context()->ToString());
+    }
+
+    // Resets dedicated cores for compactions
+    if(io_cpu_affinity_) {
+      sched_setaffinity(0, sizeof(cpuset_prev), &cpuset_prev);
     }
     thread->stats.Stop();
 
@@ -8458,6 +8485,12 @@ int db_bench_tool(int argc, char** argv) {
   ParseCommandLineFlags(&argc, &argv, true);
   FLAGS_compaction_style_e =
       (ROCKSDB_NAMESPACE::CompactionStyle)FLAGS_compaction_style;
+  
+  // Set cpuset
+  flush_cpu_affinity_ = FLAGS_flush_cpuset;
+  compaction_cpu_affinity_ = FLAGS_compaction_cpuset;
+  io_cpu_affinity_ = FLAGS_io_cpuset;
+  
 #ifndef ROCKSDB_LITE
   if (FLAGS_statistics && !FLAGS_statistics_string.empty()) {
     fprintf(stderr,
