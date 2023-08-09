@@ -2080,7 +2080,7 @@ class ReporterAgent {
             stop_cv_.wait_for(lk, std::chrono::seconds(report_interval_secs_),
                               [&]() { return stop_; })) {
           // stopping
-          break;
+          break;  
         }
         // else -> timeout, which means time for a report!
       }
@@ -2331,6 +2331,34 @@ class Stats {
                   done_ / ((now - start_) / 1000000.0),
                   (now - last_report_finish_) / 1000000.0,
                   (now - start_) / 1000000.0);
+
+          if(id_ == 0) {
+            static struct jiffies_t {
+              long long user, nice, system, idle, total;
+            } jif_cur[8], jif_prev[8];
+            int s_ret;
+            FILE *fStat = fopen("/proc/stat", "r");
+            s_ret = fscanf(fStat, "%*s %*d %*d %*d %*d %*d %*d %*d %*d %*d %*d");
+            if(s_ret) ++s_ret; // To avoid compile error
+            // Scan first line (total cpu time)
+            for(int i=0;i<8;++i) {
+              s_ret = fscanf(fStat, "%*s %lld %lld %lld %lld %*d %*d %*d %*d %*d %*d",
+              &jif_cur[i].user, &jif_cur[i].nice, &jif_cur[i].system, &jif_cur[i].idle);
+              jif_cur[i].total = jif_cur[i].user + jif_cur[i].nice
+                                  + jif_cur[i].system + jif_cur[i].idle;
+            }
+            fclose(fStat);
+            int jif_res[8];
+            for(int i=0;i<8;++i) {
+              jif_res[i] = 100.0 * (1.0 - (jif_cur[i].idle - jif_prev[i].idle)
+              / (double)(jif_cur[i].total - jif_prev[i].total));
+            }
+            fprintf(stderr, "# CPU Usage :\n%d %d %d %d %d %d %d %d\n",
+              jif_res[0], jif_res[1], jif_res[2], jif_res[3], 
+              jif_res[4], jif_res[5], jif_res[6], jif_res[7]
+            );
+            for(int i=0;i<8;++i) jif_prev[i] = jif_cur[i];
+          }
 
           if (id_ == 0 && FLAGS_stats_per_interval) {
             std::string stats;
