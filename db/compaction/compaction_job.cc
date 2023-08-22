@@ -1010,6 +1010,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     // printf("\033[0;31m%d\033[0m\n", );
   }
 
+  // Prints out when compactions occur
+  // Each compaction is unique with clock_gettime
+  struct timespec tp_b;
+  clock_gettime(CLOCK_MONOTONIC, &tp_b);
+  fprintf(stderr, "{ %ld-%ld\n", tp_b.tv_sec, tp_b.tv_nsec);
+
+
 #ifndef ROCKSDB_LITE
   if (db_options_.compaction_service) {
     CompactionServiceJobStatus comp_status =
@@ -1382,6 +1389,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   if(compaction_cpu_affinity_) {
     sched_setaffinity(0, sizeof(cpuset_prev), &cpuset_prev);
   }
+  // Prints out compactions over
+  struct timespec tp_e;
+  clock_gettime(CLOCK_MONOTONIC, &tp_e);
+  fprintf(stderr, "} %ld-%ld (%lfms)\n",
+    tp_b.tv_sec, tp_b.tv_nsec,
+    (((double)tp_e.tv_sec-tp_b.tv_sec)*1e9 + (tp_e.tv_nsec-tp_b.tv_nsec)) / 1e6
+  );
 
   blob_counter.reset();
   clip.reset();

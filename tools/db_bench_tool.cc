@@ -2353,7 +2353,10 @@ class Stats {
               jif_res[i] = 100.0 * (1.0 - (jif_cur[i].idle - jif_prev[i].idle)
               / (double)(jif_cur[i].total - jif_prev[i].total));
             }
-            fprintf(stderr, "# CPU Usage :\n%d %d %d %d %d %d %d %d\n",
+            struct timespec tp_t;
+            clock_gettime(CLOCK_MONOTONIC, &tp_t);
+            fprintf(stderr, "#[%ld-%ld] CPU Usage :\n%d %d %d %d %d %d %d %d\n",
+              tp_t.tv_sec, tp_t.tv_nsec,
               jif_res[0], jif_res[1], jif_res[2], jif_res[3], 
               jif_res[4], jif_res[5], jif_res[6], jif_res[7]
             );
