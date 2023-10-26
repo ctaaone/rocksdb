@@ -113,6 +113,9 @@ using GFLAGS_NAMESPACE::SetVersionString;
 #define IF_ROCKSDB_LITE(Then, Else) Else
 #endif
 
+// stats_interval_seconds divisor
+DEFINE_int32(stats_interval_divisor, 1, "stats_interval_divisor, ex) 10 will makes interval to 0.1s");
+
 // cpuset global variables & gflags
 DEFINE_int32(flush_cpuset, 0, "Cpu mask for flush jobs");
 DEFINE_int32(compaction_cpuset, 0, "Cpu mask for compaction jobs");
@@ -2314,11 +2317,10 @@ class Stats {
 
         // Determine whether to print status where interval is either
         // each N operations or each N seconds.
-
         if (FLAGS_stats_interval_seconds &&
-            usecs_since_last < (FLAGS_stats_interval_seconds * 1000000)) {
+            usecs_since_last < (FLAGS_stats_interval_seconds * 1000000 / FLAGS_stats_interval_divisor)) {
           // Don't check again for this many operations.
-          next_report_ += FLAGS_stats_interval;
+          next_report_ += FLAGS_stats_interval / FLAGS_stats_interval_divisor;
 
         } else {
           fprintf(stderr,
