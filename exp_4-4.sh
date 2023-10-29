@@ -1,5 +1,5 @@
 #!/bin/bash
-# Compaction 발생 시마다 감소하는 throughput 확인
+# 0.1s 단위 1KB 확인
 DURATION=60
 INUM=1
 IMASK=1
@@ -13,7 +13,7 @@ STATS_INTERVAL_DIVISOR=(10)
 
 for SID in ${STATS_INTERVAL_DIVISOR[@]}
 do
-	for VALUESIZE in 100 200 500
+	for VALUESIZE in 1024
 	do
 		for((type=1;type<=${#CMASK[*]};type+=1))
 		do
@@ -31,7 +31,7 @@ do
 			-io_cpuset="$IMASK" \
 			-stats_interval_seconds="$STATS_INTERVAL_SECONDS" \
 			-stats_interval_divisor="$SID" \
-			--statistics > ../res/"${resfile}.txt" 2> ../res/"${resfile}-err.txt"
+			--statistics > ../res-2/"${resfile}.txt" 2> ../res-2/"${resfile}-err.txt"
 			# -level0_slowdown_writes_trigger=36 \
 			# -delayed_write_rate=9223372036854775807 \
 			# -db_write_buffer_size="$MSIZE" \
