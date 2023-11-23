@@ -47,6 +47,8 @@
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
 
+extern uint32_t flush_cpu_affinity_;
+
 namespace ROCKSDB_NAMESPACE {
 
 const char* GetFlushReasonString(FlushReason flush_reason) {
@@ -213,6 +215,18 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
   TEST_SYNC_POINT("FlushJob::Start");
   db_mutex_->AssertHeld();
   assert(pick_memtable_called);
+
+  // Dedicates cores for flush
+  cpu_set_t cpuset, cpuset_prev;
+  if(flush_cpu_affinity_) {
+    CPU_ZERO(&cpuset);
+    CPU_ZERO(&cpuset_prev);
+    sched_getaffinity(0, sizeof(cpuset_prev), &cpuset_prev);
+    for(int i=0;i<8;++i)
+      if(flush_cpu_affinity_ & (1<<i)) CPU_SET(i, &cpuset);
+    sched_setaffinity(0, sizeof(cpuset), &cpuset);
+  }
+
   // Mempurge threshold can be dynamically changed.
   // For sake of consistency, mempurge_threshold is
   // saved locally to maintain consistency in each
@@ -350,6 +364,11 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
            << (IOSTATS(cpu_write_nanos) - prev_cpu_write_nanos);
     stream << "file_cpu_read_nanos"
            << (IOSTATS(cpu_read_nanos) - prev_cpu_read_nanos);
+  }
+
+  // Resets dedicated cores for flush
+  if(flush_cpu_affinity_) {
+    sched_setaffinity(0, sizeof(cpuset_prev), &cpuset_prev);
   }
 
   return s;

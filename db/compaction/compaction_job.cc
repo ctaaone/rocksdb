@@ -57,6 +57,8 @@
 #include "test_util/sync_point.h"
 #include "util/stop_watch.h"
 
+extern uint32_t compaction_cpu_affinity_;
+
 namespace ROCKSDB_NAMESPACE {
 
 const char* GetCompactionReasonString(CompactionReason compaction_reason) {
@@ -1035,6 +1037,19 @@ void CompactionJob::NotifyOnSubcompactionCompleted(
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact);
   assert(sub_compact->compaction);
+
+  // Dedicates cores for compactions
+  cpu_set_t cpuset, cpuset_prev;
+  if(compaction_cpu_affinity_) {
+    CPU_ZERO(&cpuset);
+    CPU_ZERO(&cpuset_prev);
+    sched_getaffinity(0, sizeof(cpuset_prev), &cpuset_prev);
+    for(int i=0;i<8;++i)
+      if(compaction_cpu_affinity_ & (1<<i)) CPU_SET(i, &cpuset);
+    sched_setaffinity(0, sizeof(cpuset), &cpuset);
+    // printf("\033[0;31m%d\033[0m\n", );
+  }
+
   if (db_options_.compaction_service) {
     CompactionServiceJobStatus comp_status =
         ProcessKeyValueCompactionWithCompactionService(sub_compact);
@@ -1417,6 +1432,11 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     }
   }
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
+
+  // Resets dedicated cores for compactions
+  if(compaction_cpu_affinity_) {
+    sched_setaffinity(0, sizeof(cpuset_prev), &cpuset_prev);
+  }
 
   blob_counter.reset();
   clip.reset();
