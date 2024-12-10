@@ -108,9 +108,17 @@ using GFLAGS_NAMESPACE::SetVersionString;
 DEFINE_int32(flush_cpuset, 0, "Cpu mask for flush jobs");
 DEFINE_int32(compaction_cpuset, 0, "Cpu mask for compaction jobs");
 DEFINE_int32(io_cpuset, 0, "Cpu mask for io jobs");
+DEFINE_double(energy_regression_a, 0, "Energy regression");
+DEFINE_double(energy_regression_b, 0, "Energy regression");
+DEFINE_double(energy_regression_learning_rate, 0, "Energy regression");
+DEFINE_int32(energy_measure_cpu, 0, "Energy regression");
+
 uint32_t flush_cpu_affinity_;
 uint32_t compaction_cpu_affinity_;
 uint32_t io_cpu_affinity_;
+double energy_regression_a, energy_regression_b,
+  energy_regression_learning_rate;
+uint32_t energy_measure_cpu;
 
 // stats_interval_seconds divisor
 DEFINE_int32(stats_interval_divisor, 1, "stats_interval_divisor, ex) 10 will makes interval to 0.1s");
@@ -8505,6 +8513,11 @@ int db_bench_tool(int argc, char** argv) {
   flush_cpu_affinity_ = FLAGS_flush_cpuset;
   compaction_cpu_affinity_ = FLAGS_compaction_cpuset;
   io_cpu_affinity_ = FLAGS_io_cpuset;
+  // Set regression variable
+  energy_regression_a = FLAGS_energy_regression_a;
+  energy_regression_b = FLAGS_energy_regression_b;
+  energy_regression_learning_rate = FLAGS_energy_regression_learning_rate;
+  energy_measure_cpu = FLAGS_energy_measure_cpu;
 
   if (FLAGS_statistics && !FLAGS_statistics_string.empty()) {
     fprintf(stderr,

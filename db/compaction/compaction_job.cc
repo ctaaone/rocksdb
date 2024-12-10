@@ -57,7 +57,14 @@
 #include "test_util/sync_point.h"
 #include "util/stop_watch.h"
 
-extern uint32_t compaction_cpu_affinity_;
+#include <linux/perf_event.h>
+#include <sys/ioctl.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+extern uint32_t compaction_cpu_affinity_, energy_measure_cpu;
+extern double energy_regression_a, energy_regression_b,
+  energy_regression_learning_rate;
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -1034,6 +1041,47 @@ void CompactionJob::NotifyOnSubcompactionCompleted(
   }
 }
 
+// Regression function for predicting power consumption
+static double predict_linear_regression(double compaction_size){
+    return energy_regression_a * compaction_size + energy_regression_b;
+}
+static void update_linear_regression(double compaction_size, double energy_consumption){
+    double a_gradient = 0;
+    double b_gradient = 0;
+    double predict = predict_linear_regression(compaction_size);
+    a_gradient += -2 * static_cast<double>(compaction_size) * (energy_consumption - predict);
+    b_gradient += -2 * (energy_consumption - predict);
+
+    energy_regression_a -= a_gradient * energy_regression_learning_rate;
+    energy_regression_b -= b_gradient * energy_regression_learning_rate;
+}
+
+// Measurement function for core energy consumption
+static int StartMeasureEnergy(int core) {
+    struct perf_event_attr pe;
+    memset(&pe, 0, sizeof(struct perf_event_attr));
+    pe.type = 11; // /sys/bus/event_source/devices/power/type
+    pe.size = sizeof(struct perf_event_attr);
+    pe.config = 2; // /sys/bus/event_source/devices/power/events/energy-pkg
+    pe.disabled = 1;
+    pe.exclude_kernel = 0;
+    pe.exclude_hv = 0;
+    int fd = syscall(SYS_perf_event_open, &pe, -1, core, -1, 0);
+    // fprintf(stderr, "FD : %d %d\n", fd, errno);
+    ioctl(fd, PERF_EVENT_IOC_RESET, 0);
+    ioctl(fd, PERF_EVENT_IOC_ENABLE, 0);
+
+    return fd;
+}
+static double GetMeasuredEnergy(int fd) {
+  ioctl(fd, PERF_EVENT_IOC_DISABLE, 0);
+  uint64_t ret;
+  if(read(fd, &ret, sizeof(ret)) == -1) fprintf(stderr, "Read Err in compaction_job.cc GetMeasuredEnergy\n");
+  close(fd);
+  return ret * 1e-9;
+}
+
+
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact);
   assert(sub_compact->compaction);
@@ -1049,6 +1097,17 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     sched_setaffinity(0, sizeof(cpuset), &cpuset);
     // printf("\033[0;31m%d\033[0m\n", );
   }
+
+  // Calculate the size of the compaction input file  
+  double compaction_size = sub_compact->compaction->CalculateTotalInputSize() * 1e-6;
+  // Predict power consumption
+  double energy_predicted = predict_linear_regression(compaction_size);
+  fprintf(stderr, "[Energy Predict] %lf %lf\n", energy_predicted, compaction_size);
+  // fprintf(stderr, "[Energy Predict] %lu\n", compaction_size);
+  // Start measuring core power at the beginning of compaction  
+  int energy_fd = StartMeasureEnergy(energy_measure_cpu);
+
+
   // Prints out when compactions occur
   // Each compaction is unique with clock_gettime
   struct timespec tp_b;
@@ -1437,6 +1496,11 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     }
   }
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
+
+  // Finish energy consumption measurement
+  double energy_consumed = GetMeasuredEnergy(energy_fd);
+  fprintf(stderr, "[Energy Consume] %lf\n", energy_consumed);
+  update_linear_regression(compaction_size, energy_consumed);
 
   // Resets dedicated cores for compactions
   if(compaction_cpu_affinity_) {
